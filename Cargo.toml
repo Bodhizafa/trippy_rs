@@ -1,0 +1,14 @@
+[package]
+name = "three"
+version = "0.1.0"
+authors = ["Magus Zeal <meernik@live.com>"]
+build = "build.rs"
+
+[build-dependencies]
+gl_generator = "*"
+khronos_api = "*"
+
+[dependencies]
+sdl2 = "*"
+gl_common = "*"
+libc = "*"
