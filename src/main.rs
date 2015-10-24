@@ -1,4 +1,4 @@
-// Bits in here inspired by (pasted from) https://github.com/nukep/rust-opengl-util/blob/master/shader.rs
+// Bits in here inspired by https://github.com/nukep/rust-opengl-util/blob/master/shader.rs
 extern crate sdl2;
 use sdl2::keyboard::Keycode;
 use sdl2::event::Event;
@@ -9,18 +9,20 @@ use gl::types::GLint;
 mod gl {
     include!(concat!(env!("OUT_DIR"), "/bindings.rs"));
 }
-pub struct Shader {
+pub struct Shader<'a> {
     pub id: GLuint,
-    pub glctx: gl::Gl,
+    pub glctx: &'a gl::Gl,
 }
 // IDFK what this is for. Looks like a destructor.
-impl Drop for Shader {
+impl<'a> Drop for Shader<'a> {
     fn drop(&mut self) {
-        unsafe {self.glctx.DeleteShader(self.id)};
+        unsafe {
+            self.glctx.DeleteShader(self.id)
+        };
     }
 }
-impl Shader {
-    fn new (ctx: gl::Gl, typ: GLuint) -> Shader {
+impl<'a> Shader<'a> {
+    fn new (ctx: &gl::Gl, typ: GLuint) -> Shader {
         Shader {
             glctx: ctx,
             id: unsafe { ctx.CreateShader(typ) }
@@ -69,7 +71,7 @@ fn main() {
     let glctx = wctx.gl_create_context().unwrap();
     let mut running = true;
     let mut event_pump = sctx.event_pump().unwrap();
-    let glctx = gl::Gl::load_with(|s| vctx.gl_get_proc_address(s));
+    let glctx = &gl::Gl::load_with(|s| vctx.gl_get_proc_address(s));
     let vertices:Vec<f32> = vec![
         //Front face
         -1.0, -1.0,  1.0,
@@ -160,7 +162,7 @@ fn main() {
         glctx.DepthFunc(gl::LEQUAL);
         //glctx.ShadeModel(gl::SMOOTH);
         //glctx.Hint(gl::PERSPECTIVE_CORRECTION_HINT, gl::NICEST);
-        let vs = Shader::new(glctx, gl::VERTEX_SHADER);
+        let mut vs = Shader::new(glctx, gl::VERTEX_SHADER);
         vs.source(r#"
             attribute vec3 aVertexPosition;
             attribute vec4 aColor;
@@ -174,8 +176,7 @@ fn main() {
                 gl_Position = uPMatrix * uMVMatrix * vec4(aVertexPosition, 1.0);
                 vColor = aColor;
         }"#);
-        //glctx.ShaderSource(vs, 1, 
-        let fs = Shader::new(glctx, gl::FRAGMENT_SHADER);
+        let mut fs = Shader::new(glctx, gl::FRAGMENT_SHADER);
         fs.source(r#"
             varying vec4 vColor;
             void main(void) {
