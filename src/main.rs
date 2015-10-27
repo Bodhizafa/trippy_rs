@@ -9,54 +9,111 @@ use gl::types::GLint;
 mod gl {
     include!(concat!(env!("OUT_DIR"), "/bindings.rs"));
 }
+
 pub struct Shader<'a> {
     pub id: GLuint,
     pub glctx: &'a gl::Gl,
+}
+
+pub struct Program<'a> {
+    pub id: GLuint,
+    pub glctx: &'a gl::Gl,
+}
+
+impl<'a> Drop for Program<'a> {
+    fn drop(&mut self) {
+        unsafe {
+            self.glctx.DeleteProgram(self.id);
+        }
+    }
+}
+
+impl<'a> Program<'a> {
+    fn new(glctx: &'a gl::Gl, shaders: &[Shader]) -> Result<Program<'a>, String> {
+        let p = Program {
+            id: unsafe { glctx.CreateProgram() },
+            glctx: glctx,
+        };
+        let successful: bool = unsafe {
+            for s in shaders {
+                glctx.AttachShader(p.id, s.id);
+            }
+            let mut result: GLint = 0;
+            glctx.LinkProgram(p.id);
+            glctx.GetProgramiv(p.id, gl::LINK_STATUS, &mut result);
+            result == gl::TRUE as GLint
+        };
+        match successful {
+            true => Ok(p),
+            false => Err({
+                let mut log_len = 0;
+                unsafe {
+                    glctx.GetProgramiv(p.id, gl::INFO_LOG_LENGTH, &mut log_len);
+                }
+                if (log_len == 0) {
+                    String::from("No program link log :|")
+                } else {
+                    let mut buf = Vec::with_capacity(log_len as usize);
+                    let buf_ptr = buf.as_mut_ptr() as *mut gl::types::GLchar;
+                    unsafe {
+                        glctx.GetProgramInfoLog(p.id, log_len, std::ptr::null_mut(), buf_ptr);
+                        buf.set_len(log_len as usize);
+                    }
+                    match String::from_utf8(buf) {
+                        Ok(log) => format!("LINKFAIL: {}", log),
+                        Err(vec) => format!("Could not decode shader log {}", vec)
+                    }
+                }
+            })
+        }
+    }
 }
 // IDFK what this is for. Looks like a destructor.
 impl<'a> Drop for Shader<'a> {
     fn drop(&mut self) {
         unsafe {
-            self.glctx.DeleteShader(self.id)
+            self.glctx.DeleteShader(self.id);
         };
     }
 }
+// XXX this is ugly as shit imo. Make it more like Program
 impl<'a> Shader<'a> {
-    fn new (ctx: &gl::Gl, typ: GLuint) -> Shader {
-        Shader {
-            glctx: ctx,
-            id: unsafe { ctx.CreateShader(typ) }
-        }
-    }
-    pub fn source(&mut self, source: &str) {
-        unsafe {
+    fn new (glctx: &'a gl::Gl, typ: GLuint, source: &str) -> Result<Shader<'a>, String> {
+        let s = Shader {
+            id: unsafe { glctx.CreateShader(typ) },
+            glctx: glctx,
+        };
+        let successful: bool = unsafe {
             let ptr: *const u8 = source.as_bytes().as_ptr();
             let ptr_i8: *const i8 = std::mem::transmute(ptr);
             let len = source.len() as GLint;
-            self.glctx.ShaderSource(self.id, 1, &ptr_i8, &len);    
-        };
-        let successful = unsafe {
-            self.glctx.CompileShader(self.id);
+            glctx.ShaderSource(s.id, 1, &ptr_i8, &len);    
+            glctx.CompileShader(s.id);
             let mut result: GLint = 0;
-            self.glctx.GetShaderiv(self.id, gl::COMPILE_STATUS, &mut result);
-            result != 0
+            glctx.GetShaderiv(s.id, gl::COMPILE_STATUS, &mut result);
+            result == gl::TRUE as GLint
         };
         if (!successful) {
-            let mut len = 0;
-            unsafe { self.glctx.GetShaderiv(self.id, gl::INFO_LOG_LENGTH, &mut len) };
-            assert!(len > 0);
+            let mut log_len = 0;
+            unsafe { glctx.GetShaderiv(s.id, gl::INFO_LOG_LENGTH, &mut log_len) };
+            if (log_len <= 0) {
+                Err(String::from("No shader info log?"))
+            } else {
 
-            let mut buf = Vec::with_capacity(len as usize);
-            let buf_ptr = buf.as_mut_ptr() as *mut gl::types::GLchar;
-            unsafe {
-                self.glctx.GetShaderInfoLog(self.id, len, std::ptr::null_mut(), buf_ptr);
-                buf.set_len(len as usize);
-            };
+                let mut buf = Vec::with_capacity(log_len as usize);
+                let buf_ptr = buf.as_mut_ptr() as *mut gl::types::GLchar;
+                unsafe {
+                    glctx.GetShaderInfoLog(s.id, log_len, std::ptr::null_mut(), buf_ptr);
+                    buf.set_len(log_len as usize);
+                };
 
-            match String::from_utf8(buf) {
-                Ok(log) => println!("COMPILEFAIL: {}", log),
-                Err(vec) => panic!("Could not convert compilation log from buffer: {}",vec)
+                match String::from_utf8(buf) {
+                    Ok(log) => Err(format!("COMPILEFAIL: {}", log)),
+                    Err(vec) => Err(format!("Could not convert compilation log from buffer: {}",vec)),
+                }
             }
+        } else {
+            Ok(s)
         }
     }
 }
@@ -162,8 +219,8 @@ fn main() {
         glctx.DepthFunc(gl::LEQUAL);
         //glctx.ShadeModel(gl::SMOOTH);
         //glctx.Hint(gl::PERSPECTIVE_CORRECTION_HINT, gl::NICEST);
-        let mut vs = Shader::new(glctx, gl::VERTEX_SHADER);
-        vs.source(r#"
+        let vs = Shader::new(glctx, gl::VERTEX_SHADER,
+        r#"
             attribute vec3 aVertexPosition;
             attribute vec4 aColor;
 
@@ -175,14 +232,15 @@ fn main() {
             void main(void) {
                 gl_Position = uPMatrix * uMVMatrix * vec4(aVertexPosition, 1.0);
                 vColor = aColor;
-        }"#);
-        let mut fs = Shader::new(glctx, gl::FRAGMENT_SHADER);
-        fs.source(r#"
+            }
+        "#).unwrap();
+        let mut fs = Shader::new(glctx, gl::FRAGMENT_SHADER,
+        r#"
             varying vec4 vColor;
             void main(void) {
                 gl_FragColor = vColor;
             }
-        "#);
+        "#).unwrap();
         let pr = glctx.CreateProgram();
         glctx.AttachShader(pr, vs.id);
         glctx.AttachShader(pr, fs.id);
@@ -196,7 +254,7 @@ fn main() {
                 Event::Quit {..} | Event::KeyDown { keycode: Some(Keycode::Q), .. } => 
                     {running = false},
                 Event::KeyDown { keycode: Some(kc), timestamp, .. } => {println!("Got a {} at {}", kc, timestamp)},
-                _ => {println!("Unknown event")}
+                _ => {println!("Unknown event")},
             }
         }
         unsafe {
