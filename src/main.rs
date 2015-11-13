@@ -1,5 +1,6 @@
 // Bits in here inspired by https://github.com/nukep/rust-opengl-util/blob/master/shader.rs
 extern crate sdl2;
+extern crate nalgebra;
 use sdl2::keyboard::Keycode;
 use sdl2::event::Event;
 use gl::types::GLuint;
@@ -145,7 +146,7 @@ fn main() {
         //Front face
         -1.0, -1.0,  1.0,
          1.0, -1.0,  1.0,
-         1.0,  1.0,  1.0,
+         1.0,  1.0,  1.0, ];/*
         -1.0,  1.0,  1.0,
 
         //Back face
@@ -177,23 +178,23 @@ fn main() {
         -1.0, -1.0,  1.0,
         -1.0,  1.0,  1.0,
         -1.0,  1.0, -1.0
-    ];
+    ];*/
 
     let indices = [
-        0, 1, 2,      0, 2, 3,    // Front face
+        0, 1, 2,];      /*0, 2, 3,    // Front face
         4, 5, 6,      4, 6, 7,    // Back face
         8, 9, 2,      8, 2, 11,   // Top face
         12, 13, 14,   12, 14, 15, // Bottom face
         16, 17, 18,   16, 18, 19, // Right face
         20, 21, 22,   20, 22, 23  // Left face
-    ];
+    ];*/
     let colors = [
         //Front face
+         1.0,  0.0,  0.0, 1.0,
+         0.0,  1.0,  0.0, 1.0,
+         0.0,  0.0,  1.0, 1.0, ]; /*
          1.0,  1.0,  1.0, 1.0,
-         1.0,  1.0,  1.0, 1.0,
-         1.0,  1.0,  1.0, 1.0,
-         1.0,  1.0,  1.0, 1.0,
-
+    ];
         //Back face
          1.0,  1.0,  1.0, 1.0,
          1.0,  1.0,  1.0, 1.0,
@@ -224,8 +225,20 @@ fn main() {
          1.0,  1.0,  1.0, 1.0,
          1.0,  1.0,  1.0, 1.0,
     ];
+    */
+    let pm //p_matrix(10., -10., 10., -10., -5., 5.);
+     = [
+        1., 0., 0., 0.,
+        0., 1., 0., 0.,
+        0., 0., 1., 0.,
+        0., 0., 0., 1.,
+    ]; 
+    let mvm = [0.5, 0., 0., 0.,
+               0., 0.5, 0., 0., 
+               0., 0., 0.5, 0.,
+               0., 0., 0.5, 1.];
     let pr = unsafe { // Initialize opengl
-        glctx.ClearColor(1.0, 0.0, 0.0, 1.0);
+        glctx.ClearColor(0.0, 0.0, 0.0, 1.0);
         glctx.ClearDepth(1.0);
         glctx.Enable(gl::DEPTH_TEST);
         glctx.DepthFunc(gl::LEQUAL);
@@ -273,25 +286,31 @@ fn main() {
     if pmloc == -1 {
         panic!("couldn't find pmatrix");
     }
-    let pm = p_matrix(10., -10., 10., -10., 5., 15.);
-    let mvm = [1., 0., 0., 0.,
-               0., 1., 0., 0., 
-               0., 0., 1., -10.,
-               0., 0., 0., 1.];
     let bufs = unsafe {
-        let mut bs: [u32;3] = [0, 0, 0];
-        glctx.CreateBuffers(3, bs.as_mut_ptr());
+        let mut bs: [u32;5] = [0, 0, 0,0, 0];
+        glctx.CreateBuffers(5, bs.as_mut_ptr());
         bs
     };
     let vbuf = bufs[0];
     let cbuf = bufs[1];
     let ibuf = bufs[2];
-    if (vbuf == 0 || cbuf == 0 || ibuf == 0) {
-        panic!("Could not CreateBuffers, got v:{} c:{} i:{}", vbuf, cbuf, ibuf);
+    let mvmbuf = bufs[3];
+    let pmbuf = bufs[3];
+    if (vbuf == 0 || cbuf == 0 || ibuf == 0 || mvmbuf == 0 || pmbuf == 0) {
+        panic!("Could not CreateBuffers, got v:{} c:{} i:{} mvm:{}, pm:{}", vbuf, cbuf, ibuf, mvmbuf, pmbuf);
     }
     println!("CreateBuffers'd, got v:{} c:{} i:{}", vbuf, cbuf, ibuf);
     let mflags = gl::MAP_WRITE_BIT | gl::MAP_PERSISTENT_BIT | gl::MAP_COHERENT_BIT;
-    let sflags = mflags | gl::DYNAMIC_STORAGE_BIT;
+    let sflags = mflags;// | gl::DYNAMIC_STORAGE_BIT;
+    let mvmptr = unsafe {
+        glctx.NamedBufferStorage(mvmbuf, mvm.len() as i64 * 4, std::ptr::null(), sflags);
+        let ptr = glctx.MapNamedBufferRange(mvmbuf, 0, mvm.len() as i64 * 4, mflags);
+        if (ptr as u64 == 0) {
+            panic!("Failed to map vertex buffer {}", glctx.GetError());
+        }
+        std::ptr::write(ptr as *mut [f32; 16], mvm);
+        ptr
+    };
     let vptr = unsafe {
         // Map and fill the vertex buffer
         glctx.NamedBufferStorage(vbuf, vertices.len() as i64 * 4, std::ptr::null(), sflags);
@@ -299,7 +318,7 @@ fn main() {
         if (ptr as u64 == 0) {
             panic!("Failed to map vertex buffer {}", glctx.GetError());
         }
-        std::ptr::write(ptr as *mut [f32; 72], vertices);
+        std::ptr::write(ptr as *mut [f32; 9], vertices);
         ptr
     };
     println!("Mapped vertex buffer to {}", vptr as u64);
@@ -310,7 +329,7 @@ fn main() {
         if (ptr as u64 == 0) {
             panic!("Failed to map color buffer {}", glctx.GetError());
         }
-        std::ptr::write(ptr as *mut [f32; 96], colors);
+        std::ptr::write(ptr as *mut [f32; 12], colors);
         ptr
     };
     let iptr = unsafe {
@@ -320,10 +339,15 @@ fn main() {
         if (ptr as u64 == 0) {
             panic!("Failed to map color buffer {}", glctx.GetError());
         }
-        std::ptr::write(ptr as *mut [u32; 36], indices);
+        std::ptr::write(ptr as *mut [u32; 3], indices);
         ptr
     };
     println!("Mapped color buffer to {}", cptr as u64);
+
+    unsafe {
+        glctx.ProgramUniformMatrix4fv(pr.id, pmloc, 1, false as u8, pm.as_ptr());
+        glctx.ProgramUniformMatrix4fv(pr.id, mvmloc, 1, false as u8, mvm.as_ptr());
+    };
 
     let vao = unsafe {
         // Create a Vertex Array Object 
@@ -357,10 +381,6 @@ fn main() {
     let vp_h = vp[3];
     println!("Viewport at ({}, {}), sized {}x{}", vp_x, vp_y, vp_w, vp_h);
 
-    unsafe {
-        glctx.ProgramUniformMatrix4fv(pr.id, pmloc, 1, false as u8, pm.as_ptr());
-        glctx.ProgramUniformMatrix4fv(pr.id, mvmloc, 1, false as u8, mvm.as_ptr());
-    };
     while running {
         for event in event_pump.poll_iter() {
             match event {
@@ -374,7 +394,9 @@ fn main() {
             glctx.Clear(gl::COLOR_BUFFER_BIT|gl::DEPTH_BUFFER_BIT|gl::STENCIL_BUFFER_BIT);
             glctx.UseProgram(pr.id);
             glctx.BindVertexArray(vao);
+            glctx.MemoryBarrier(gl::CLIENT_MAPPED_BUFFER_BARRIER_BIT);
             glctx.DrawElements(gl::TRIANGLES, indices.len() as i32, gl::UNSIGNED_INT, std::ptr::null());
+            glctx.Finish();
         }
         wctx.gl_swap_window();
     }
