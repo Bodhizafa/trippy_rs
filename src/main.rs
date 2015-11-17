@@ -248,9 +248,10 @@ fn main() {
         r#"
             attribute vec4 aColor;
             attribute vec3 aPosition;
-
-            uniform mat4 uMVMatrix;
-            uniform mat4 uPMatrix;
+            uniform uBlock {
+                mat4 uMVMatrix;
+                mat4 uPMatrix;
+            };
 
             varying vec4 vColor;
 
@@ -271,44 +272,45 @@ fn main() {
     // Get attr and uniform locations
     let vloc = unsafe {glctx.GetProgramResourceLocation(pr.id, gl::PROGRAM_INPUT, CString::new("aPosition").unwrap().as_ptr())};
     let cloc = unsafe { glctx.GetProgramResourceLocation(pr.id, gl::PROGRAM_INPUT, CString::new("aColor").unwrap().as_ptr())};
-    let mvmloc = unsafe { glctx.GetProgramResourceLocation(pr.id, gl::UNIFORM, CString::new("uMVMatrix").unwrap().as_ptr())};
-    let pmloc = unsafe { glctx.GetProgramResourceLocation(pr.id, gl::UNIFORM, CString::new("uPMatrix").unwrap().as_ptr())};
-    println!("Color loc: {}, Vertex loc: {}, pm loc: {}, mvm loc: {}", cloc, vloc, pmloc, mvmloc);
+    let ubloc = unsafe { glctx.GetProgramResourceIndex(pr.id, gl::UNIFORM_BLOCK, CString::new("uBlock").unwrap().as_ptr())} as u32;
+    println!("Color loc: {}, Vertex loc: {}, ub loc: {}", cloc, vloc, ubloc);
     if cloc == -1 {
         panic!("couldn't find color");
     }
     if vloc == -1 {
         panic!("couldn't find position");
     }
-    if mvmloc == -1 {
-        panic!("couldn't find mvmatrix");
-    }
-    if pmloc == -1 {
-        panic!("couldn't find pmatrix");
+    if ubloc == -1 {
+        panic!("couldn't find uniform block");
     }
     let bufs = unsafe {
-        let mut bs: [u32;5] = [0, 0, 0,0, 0];
-        glctx.CreateBuffers(5, bs.as_mut_ptr());
+        let mut bs: [u32;4] = [0, 0, 0, 0];
+        glctx.CreateBuffers(4, bs.as_mut_ptr());
         bs
     };
     let vbuf = bufs[0];
     let cbuf = bufs[1];
     let ibuf = bufs[2];
-    let mvmbuf = bufs[3];
-    let pmbuf = bufs[3];
-    if (vbuf == 0 || cbuf == 0 || ibuf == 0 || mvmbuf == 0 || pmbuf == 0) {
-        panic!("Could not CreateBuffers, got v:{} c:{} i:{} mvm:{}, pm:{}", vbuf, cbuf, ibuf, mvmbuf, pmbuf);
+    let ubbuf = bufs[3];
+    if (vbuf == 0 || cbuf == 0 || ibuf == 0 || ubbuf == 0) {
+        panic!("Could not CreateBuffers, got v:{} c:{} i:{} ub:{}", vbuf, cbuf, ibuf, ubbuf);
     }
     println!("CreateBuffers'd, got v:{} c:{} i:{}", vbuf, cbuf, ibuf);
     let mflags = gl::MAP_WRITE_BIT | gl::MAP_PERSISTENT_BIT | gl::MAP_COHERENT_BIT;
     let sflags = mflags;// | gl::DYNAMIC_STORAGE_BIT;
-    let mvmptr = unsafe {
-        glctx.NamedBufferStorage(mvmbuf, mvm.len() as i64 * 4, std::ptr::null(), sflags);
-        let ptr = glctx.MapNamedBufferRange(mvmbuf, 0, mvm.len() as i64 * 4, mflags);
+    let ubptr = unsafe {
+        let mut data_size = 0 as GLint;
+        let params = gl::BUFFER_DATA_SIZE;
+        glctx.GetProgramResourceiv(pr.id, gl::UNIFORM_BLOCK, ubloc, 1, &gl::BUFFER_DATA_SIZE, 1, std::ptr::null_mut(), &mut data_size as *mut GLint);
+        println!("UB size: {}", data_size);
+        glctx.NamedBufferStorage(ubbuf, data_size as i64, std::ptr::null(), sflags);
+        let ptr = glctx.MapNamedBufferRange(ubbuf, 0, data_size as i64, mflags) as *mut f32;
         if (ptr as u64 == 0) {
-            panic!("Failed to map vertex buffer {}", glctx.GetError());
+            panic!("Failed to map Uniform buffer {}", glctx.GetError());
         }
         std::ptr::write(ptr as *mut [f32; 16], mvm);
+        std::ptr::write(ptr.offset(16) as *mut [f32; 16], pm);
+        println!("Ptr: {}, offset: {}", ptr as u64, ptr.offset(16) as u64);
         ptr
     };
     let vptr = unsafe {
@@ -345,8 +347,9 @@ fn main() {
     println!("Mapped color buffer to {}", cptr as u64);
 
     unsafe {
-        glctx.ProgramUniformMatrix4fv(pr.id, pmloc, 1, false as u8, pm.as_ptr());
-        glctx.ProgramUniformMatrix4fv(pr.id, mvmloc, 1, false as u8, mvm.as_ptr());
+        //glctx.ProgramUniformMatrix4fv(pr.id, pmloc, 1, false as u8, pm.as_ptr());
+        //glctx.ProgramUniformMatrix4fv(pr.id, mvmloc, 1, false as u8, mvm.as_ptr());
+        glctx.UniformBlockBinding(pr.id, ubloc as u32, 1);
     };
 
     let vao = unsafe {
@@ -394,6 +397,7 @@ fn main() {
             glctx.Clear(gl::COLOR_BUFFER_BIT|gl::DEPTH_BUFFER_BIT|gl::STENCIL_BUFFER_BIT);
             glctx.UseProgram(pr.id);
             glctx.BindVertexArray(vao);
+            glctx.BindBufferBase(gl::UNIFORM_BUFFER, 1, ubbuf);
             glctx.MemoryBarrier(gl::CLIENT_MAPPED_BUFFER_BARRIER_BIT);
             glctx.DrawElements(gl::TRIANGLES, indices.len() as i32, gl::UNSIGNED_INT, std::ptr::null());
             glctx.Finish();
