@@ -139,7 +139,6 @@ fn main() {
     let mut event_pump = sctx.event_pump().unwrap();
     let glctx = &gl::Gl::load_with(|s| vctx.gl_get_proc_address(s));
     let mut vertices = [
-        //Front face
         -1.0, -1.0,  1.0,
          1.0, -1.0,  1.0,
          1.0,  1.0,  1.0, 
@@ -149,7 +148,6 @@ fn main() {
         0 as u32, 1, 2, 
         0, 2, 3,];
     let colors = [
-        //Front face
          1.0 as f32,  0.0,  0.0, 1.0,
          0.0,  1.0,  0.0, 1.0,
          0.0,  1.0,  1.0, 1.0, 
