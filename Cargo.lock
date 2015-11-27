@@ -6,7 +6,7 @@ dependencies = [
  "gl_generator 0.1.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "khronos_api 0.0.8 (registry+https://github.com/rust-lang/crates.io-index)",
  "libc 0.1.10 (registry+https://github.com/rust-lang/crates.io-index)",
- "nalgebra 0.3.1 (registry+https://github.com/rust-lang/crates.io-index)",
+ "nalgebra 0.4.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "sdl2 0.9.1 (registry+https://github.com/rust-lang/crates.io-index)",
 ]
 
@@ -62,7 +62,7 @@ dependencies = [
 
 [[package]]
 name = "nalgebra"
-version = "0.3.1"
+version = "0.4.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 dependencies = [
  "num 0.1.27 (registry+https://github.com/rust-lang/crates.io-index)",

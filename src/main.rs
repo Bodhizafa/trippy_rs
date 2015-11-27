@@ -1,6 +1,8 @@
 // Bits in here inspired by https://github.com/nukep/rust-opengl-util/blob/master/shader.rs
 extern crate sdl2;
-extern crate nalgebra;
+extern crate nalgebra as na;
+extern crate libc;
+
 use sdl2::keyboard::Keycode;
 use sdl2::event::Event;
 use gl::types::GLuint;
@@ -9,6 +11,9 @@ use gl::types::GLint;
 use gl::types::GLfloat;
 use std::ffi::CString;
 use std::mem::size_of;
+use std::f32::consts::PI;
+use std::cmp::{min, max};
+use libc::types::common::c95::c_void;
 
 mod gl {
     include!(concat!(env!("OUT_DIR"), "/bindings.rs"));
@@ -121,15 +126,6 @@ impl<'a> Shader<'a> {
     }
 }
 
-fn p_matrix(l:GLfloat, r:GLfloat, t:GLfloat, b:GLfloat, n:GLfloat, f:GLfloat) -> [GLfloat; 16] {
-    [
-        (2. * n)/(r - l), 0., (r + l)/(r - l), 0.,
-        0., (2. * n)/(t - b), (t + b)/(t - b), 0.,
-        0., 0., -(f + n) / (f - n), (-2. * f * n)/(f - n),
-        0., 0., -1., 0.
-    ]
-}
-
 fn main() {
     println!("OK let's do this!");
     let sctx = sdl2::init().unwrap();
@@ -142,101 +138,32 @@ fn main() {
     let mut running = true;
     let mut event_pump = sctx.event_pump().unwrap();
     let glctx = &gl::Gl::load_with(|s| vctx.gl_get_proc_address(s));
-    let vertices = [
+    let mut vertices = [
         //Front face
         -1.0, -1.0,  1.0,
          1.0, -1.0,  1.0,
-         1.0,  1.0,  1.0, ];/*
-        -1.0,  1.0,  1.0,
-
-        //Back face
-        -1.0, -1.0, -1.0,
-        -1.0,  1.0, -1.0,
-         1.0,  1.0, -1.0,
-         1.0, -1.0, -1.0,
-
-        //Top face
-        -1.0,  1.0, -1.0,
-        -1.0,  1.0,  1.0,
-         1.0,  1.0,  1.0,
-         1.0,  1.0, -1.0,
-
-        //Bottom face
-        -1.0, -1.0, -1.0,
-         1.0, -1.0, -1.0,
-         1.0, -1.0,  1.0,
-        -1.0, -1.0,  1.0,
-
-        //Right face
-         1.0, -1.0, -1.0,
-         1.0,  1.0, -1.0,
-         1.0,  1.0,  1.0,
-         1.0, -1.0,  1.0,
-
-        //Left face
-        -1.0, -1.0, -1.0,
-        -1.0, -1.0,  1.0,
-        -1.0,  1.0,  1.0,
-        -1.0,  1.0, -1.0
-    ];*/
+         1.0,  1.0,  1.0, 
+        -1.0,  1.0,  1.0 as f32, ]; 
 
     let indices = [
-        0, 1, 2,];      /*0, 2, 3,    // Front face
-        4, 5, 6,      4, 6, 7,    // Back face
-        8, 9, 2,      8, 2, 11,   // Top face
-        12, 13, 14,   12, 14, 15, // Bottom face
-        16, 17, 18,   16, 18, 19, // Right face
-        20, 21, 22,   20, 22, 23  // Left face
-    ];*/
+        0 as u32, 1, 2, 
+        0, 2, 3,];
     let colors = [
         //Front face
-         1.0,  0.0,  0.0, 1.0,
+         1.0 as f32,  0.0,  0.0, 1.0,
          0.0,  1.0,  0.0, 1.0,
-         0.0,  0.0,  1.0, 1.0, ]; /*
-         1.0,  1.0,  1.0, 1.0,
-    ];
-        //Back face
-         1.0,  1.0,  1.0, 1.0,
-         1.0,  1.0,  1.0, 1.0,
-         1.0,  1.0,  1.0, 1.0,
-         1.0,  1.0,  1.0, 1.0,
-
-        //Top face
-         1.0,  1.0,  1.0, 1.0,
-         1.0,  1.0,  1.0, 1.0,
-         1.0,  1.0,  1.0, 1.0,
-         1.0,  1.0,  1.0, 1.0,
-
-        //Bottom face
-         1.0,  1.0,  1.0, 1.0,
-         1.0,  1.0,  1.0, 1.0,
-         1.0,  1.0,  1.0, 1.0,
-         1.0,  1.0,  1.0, 1.0,
-
-        //Right face
-         1.0,  1.0,  1.0, 1.0,
-         1.0,  1.0,  1.0, 1.0,
-         1.0,  1.0,  1.0, 1.0,
-         1.0,  1.0,  1.0, 1.0,
-
-        //Left face
-         1.0,  1.0,  1.0, 1.0,
-         1.0,  1.0,  1.0, 1.0,
-         1.0,  1.0,  1.0, 1.0,
-         1.0,  1.0,  1.0, 1.0,
-    ];
-    */
-    let pm //p_matrix(10., -10., 10., -10., -5., 5.);
-     = [
-        1., 0., 0., 0.,
-        0., 1., 0., 0.,
-        0., 0., 1., 0.,
-        0., 0., 0., 1.,
-    ]; 
-    let mvm = [0.5, 0., 0., 0.,
-               0., 0.5, 0., 0., 
-               0., 0., 0.5, 0.,
-               0., 0., 0.5, 1.];
+         0.0,  1.0,  1.0, 1.0, 
+         0.0,  0.0,  1.0, 1.0, ];
+    let mut mvm: na::Mat4<f32> = na::new_identity(4);
+    let translate = na::Mat4::<f32>::new(
+        0.5, 0., 0., 0.0,
+        0., 0.5, 0., 0.0,
+        0., 0., 0.5, 2.,
+        0., 0., 0., 1. );
+    mvm = mvm * translate;
+    let pm = na::Persp3::<f32>::new(1., PI / 4., 1.0, 100. ).to_mat();
+    //let pm: na::Mat4<f32> = na::new_identity(4);
+    
     let pr = unsafe { // Initialize opengl
         glctx.ClearColor(0.0, 0.0, 0.0, 1.0);
         glctx.ClearDepth(1.0);
@@ -274,13 +201,13 @@ fn main() {
     let cloc = unsafe { glctx.GetProgramResourceLocation(pr.id, gl::PROGRAM_INPUT, CString::new("aColor").unwrap().as_ptr())};
     let ubloc = unsafe { glctx.GetProgramResourceIndex(pr.id, gl::UNIFORM_BLOCK, CString::new("uBlock").unwrap().as_ptr())} as u32;
     println!("Color loc: {}, Vertex loc: {}, ub loc: {}", cloc, vloc, ubloc);
-    if cloc == -1 {
+    if cloc as i32 == -1 {
         panic!("couldn't find color");
     }
-    if vloc == -1 {
+    if vloc as i32 == -1 {
         panic!("couldn't find position");
     }
-    if ubloc == -1 {
+    if ubloc as i32 == -1 {
         panic!("couldn't find uniform block");
     }
     let bufs = unsafe {
@@ -292,63 +219,66 @@ fn main() {
     let cbuf = bufs[1];
     let ibuf = bufs[2];
     let ubbuf = bufs[3];
-    if (vbuf == 0 || cbuf == 0 || ibuf == 0 || ubbuf == 0) {
+    if vbuf == 0 || cbuf == 0 || ibuf == 0 || ubbuf == 0 {
         panic!("Could not CreateBuffers, got v:{} c:{} i:{} ub:{}", vbuf, cbuf, ibuf, ubbuf);
     }
     println!("CreateBuffers'd, got v:{} c:{} i:{}", vbuf, cbuf, ibuf);
     let mflags = gl::MAP_WRITE_BIT | gl::MAP_PERSISTENT_BIT | gl::MAP_COHERENT_BIT;
-    let sflags = mflags;// | gl::DYNAMIC_STORAGE_BIT;
-    let ubptr = unsafe {
+    let sflags = mflags | gl::DYNAMIC_STORAGE_BIT;
+    let mvmptr = unsafe {
         let mut data_size = 0 as GLint;
-        let params = gl::BUFFER_DATA_SIZE;
         glctx.GetProgramResourceiv(pr.id, gl::UNIFORM_BLOCK, ubloc, 1, &gl::BUFFER_DATA_SIZE, 1, std::ptr::null_mut(), &mut data_size as *mut GLint);
         println!("UB size: {}", data_size);
         glctx.NamedBufferStorage(ubbuf, data_size as i64, std::ptr::null(), sflags);
         let ptr = glctx.MapNamedBufferRange(ubbuf, 0, data_size as i64, mflags) as *mut f32;
-        if (ptr as u64 == 0) {
+        if ptr as u64 == 0 {
             panic!("Failed to map Uniform buffer {}", glctx.GetError());
         }
-        std::ptr::write(ptr as *mut [f32; 16], mvm);
-        std::ptr::write(ptr.offset(16) as *mut [f32; 16], pm);
+
         println!("Ptr: {}, offset: {}", ptr as u64, ptr.offset(16) as u64);
-        ptr
+        ptr as *mut na::Mat4<f32>
     };
+    let pmptr = unsafe { mvmptr.offset(1)};
+    println!("mvmptr: {}, pmptr: {}", mvmptr as u64, pmptr as u64);
+    unsafe {
+        std::ptr::write(mvmptr, mvm);
+        std::ptr::write(pmptr, pm);
+    }
     let vptr = unsafe {
         // Map and fill the vertex buffer
         glctx.NamedBufferStorage(vbuf, vertices.len() as i64 * 4, std::ptr::null(), sflags);
-        let ptr = glctx.MapNamedBufferRange(vbuf, 0, vertices.len() as i64 * 4, mflags);
-        if (ptr as u64 == 0) {
+        let ptr = glctx.MapNamedBufferRange(vbuf, 0, vertices.len() as i64 * 4, mflags) as *mut f32;
+        if ptr as u64 == 0 {
             panic!("Failed to map vertex buffer {}", glctx.GetError());
         }
-        std::ptr::write(ptr as *mut [f32; 9], vertices);
-        ptr
+        //std::ptr::write(ptr as *mut [f32; 9], vertices);
+        ptr as *mut f32
     };
+    unsafe {std::ptr::copy_nonoverlapping(&vertices as *const f32, vptr, vertices.len())};
     println!("Mapped vertex buffer to {}", vptr as u64);
     let cptr = unsafe {
         // Map and fill the color buffer
         glctx.NamedBufferStorage(cbuf, colors.len() as i64 * 4, std::ptr::null(), sflags);
         let ptr = glctx.MapNamedBufferRange(cbuf, 0, colors.len() as i64 * 4, mflags);
-        if (ptr as u64 == 0) {
+        if ptr as u64 == 0 {
             panic!("Failed to map color buffer {}", glctx.GetError());
         }
-        std::ptr::write(ptr as *mut [f32; 12], colors);
+        std::ptr::copy_nonoverlapping(&colors as *const f32, ptr as *mut f32, colors.len());
         ptr
     };
     let iptr = unsafe {
         // Map and fill the index buffer
         glctx.NamedBufferStorage(ibuf, indices.len() as i64 * 4, std::ptr::null(), sflags);
         let ptr = glctx.MapNamedBufferRange(ibuf, 0, indices.len() as i64 * 4, mflags);
-        if (ptr as u64 == 0) {
+        if ptr as u64 == 0 {
             panic!("Failed to map color buffer {}", glctx.GetError());
         }
-        std::ptr::write(ptr as *mut [u32; 3], indices);
+        std::ptr::copy_nonoverlapping(&indices as *const u32, ptr as *mut u32, indices.len());
         ptr
     };
     println!("Mapped color buffer to {}", cptr as u64);
 
     unsafe {
-        //glctx.ProgramUniformMatrix4fv(pr.id, pmloc, 1, false as u8, pm.as_ptr());
-        //glctx.ProgramUniformMatrix4fv(pr.id, mvmloc, 1, false as u8, mvm.as_ptr());
         glctx.UniformBlockBinding(pr.id, ubloc as u32, 1);
     };
 
@@ -364,11 +294,11 @@ fn main() {
         // Tie the shit together
         glctx.EnableVertexArrayAttrib(vao, vloc as u32);
         glctx.EnableVertexArrayAttrib(vao, cloc as u32);
-        glctx.VertexArrayVertexBuffer(vao, vloc as u32, vbuf, 0, 4);
-        glctx.VertexArrayVertexBuffer(vao, cloc as u32, cbuf, 0, 4);
+        glctx.VertexArrayVertexBuffer(vao, vloc as u32, vbuf, 0, 12);
+        glctx.VertexArrayVertexBuffer(vao, cloc as u32, cbuf, 0, 16);
         glctx.VertexArrayElementBuffer(vao, ibuf);
     };
-    if (vao == 0) {
+    if vao == 0 {
         panic!("Failed to CreateVertexArrays");
     }
     println!("Created VAO: {}", vao);
@@ -383,12 +313,30 @@ fn main() {
     let vp_w = vp[2];
     let vp_h = vp[3];
     println!("Viewport at ({}, {}), sized {}x{}", vp_x, vp_y, vp_w, vp_h);
-
+    let mut vidx = 0;
     while running {
         for event in event_pump.poll_iter() {
             match event {
                 Event::Quit {..} | Event::KeyDown { keycode: Some(Keycode::Q), .. } => 
                     {running = false},
+                Event::KeyDown { keycode: Some(Keycode::Right), ..  } => {
+                    vidx = min(vidx + 1, vertices.len());
+                },
+                Event::KeyDown { keycode: Some(Keycode::Left), ..  } => {
+                    if vidx > 0 {
+                        vidx = max(vidx - 1, 0);
+                    }
+                },
+                Event::KeyDown { keycode: Some(Keycode::Up), ..  } => {
+                    vertices[vidx] = vertices[vidx] + 0.05;
+                    println!("Set vertices[{}] to {:?}", vidx, vertices);
+                    unsafe {std::ptr::copy_nonoverlapping(&vertices as *const f32, vptr, vertices.len())};
+                },
+                Event::KeyDown { keycode: Some(Keycode::Down), ..  } => {
+                    vertices[vidx] = vertices[vidx] - 0.05;
+                    println!("Set vertices[{}] to {:?}", vidx, vertices);
+                    unsafe {std::ptr::copy_nonoverlapping(&vertices as *const f32, vptr, vertices.len())};
+                },
                 Event::KeyDown { keycode: Some(kc), timestamp, .. } => {println!("Got a {} at {}", kc, timestamp)},
                 _ => {println!("Unknown event")},
             }
