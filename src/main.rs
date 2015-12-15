@@ -125,7 +125,7 @@ fn main() {
     println!("OK let's do this!");
     let sctx = sdl2::init().unwrap();
     let vctx = sctx.video().unwrap();
-    let wctx = vctx.window("Some Bullshit", 800, 600)
+    let wctx = vctx.window("Some Bullshit", 1024, 1024)
         .opengl()
         .build()
         .unwrap();
