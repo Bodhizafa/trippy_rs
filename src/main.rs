@@ -2,6 +2,7 @@
 extern crate sdl2;
 extern crate nalgebra as na;
 extern crate libc;
+extern crate time;
 
 use sdl2::keyboard::Keycode;
 use sdl2::event::Event;
@@ -10,6 +11,7 @@ use gl::types::GLint;
 use std::ffi::CString;
 use std::f32::consts::PI;
 use std::cmp::{min, max};
+
 
 mod gl {
     include!(concat!(env!("OUT_DIR"), "/bindings.rs"));
@@ -167,17 +169,22 @@ fn main() {
         //glctx.Hint(gl::PERSPECTIVE_CORRECTION_HINT, gl::NICEST);
         let vs = Shader::new(glctx, gl::VERTEX_SHADER,
         r#"
+            #define TAU (3.1415926535897932384626433832795 * 2)
+
             attribute vec2 aCoord;
             attribute vec3 aPosition;
             uniform uBlock {
                 mat4 uMVMatrix;
                 mat4 uPMatrix;
+                float t;
             };
 
             varying vec2 vCoord;
 
             void main(void) {
-                gl_Position = uPMatrix * uMVMatrix * vec4(aPosition, 1.0);
+                float theta = fmod(gl_InstanceID / 100.0 * TAU + t / 2, TAU);
+                vec3 instancePosition = vec3(sin(theta * 3), cos(theta * 3), theta * 3);
+                gl_Position = uPMatrix * uMVMatrix * vec4((aPosition) / 10 + instancePosition, 1);
                 vCoord = aCoord;
             }
         "#).unwrap();
@@ -234,10 +241,12 @@ fn main() {
         ptr as *mut na::Mat4<f32>
     };
     let pmptr = unsafe { mvmptr.offset(1)};
+    let tptr = unsafe { mvmptr.offset(2) as *mut f32};
     println!("mvmptr: {}, pmptr: {}", mvmptr as u64, pmptr as u64);
     unsafe {
         std::ptr::write(mvmptr, mvm);
         std::ptr::write(pmptr, pm);
+        std::ptr::write(tptr, 1.0 as f32);
     }
     let vptr = unsafe {
         // Map and fill the vertex buffer
@@ -296,7 +305,20 @@ fn main() {
     println!("Created VAO: {}", vao);
 
     let mut vidx = 0;
+    let mut t = 0 as f32;
+    let epoch = time::precise_time_s() as f32;
+    let mut last_report = epoch;
+    let mut last_report_frame = 0;
+    let mut frame = 0;
     while running {
+        t = time::precise_time_s() as f32 + epoch;
+        if t - last_report > 1.0 {
+            println!("{} FPS", (frame - last_report_frame) as f32 / (t - last_report));
+            last_report = t;
+            last_report_frame = frame;
+        }
+        frame += 1;
+            
         for event in event_pump.poll_iter() {
             match event {
                 Event::Quit {..} | Event::KeyDown { keycode: Some(Keycode::Q), .. } => 
@@ -329,7 +351,8 @@ fn main() {
             glctx.BindVertexArray(vao);
             glctx.BindBufferBase(gl::UNIFORM_BUFFER, 1, ubbuf);
             glctx.MemoryBarrier(gl::CLIENT_MAPPED_BUFFER_BARRIER_BIT);
-            glctx.DrawElements(gl::TRIANGLES, indices.len() as i32, gl::UNSIGNED_INT, std::ptr::null());
+            glctx.DrawElementsInstanced(gl::TRIANGLES, indices.len() as i32, gl::UNSIGNED_INT, std::ptr::null(), 100);
+            std::ptr::write(tptr, t);
             glctx.Finish();
         }
         wctx.gl_swap_window();
