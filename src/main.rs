@@ -6,14 +6,10 @@ extern crate libc;
 use sdl2::keyboard::Keycode;
 use sdl2::event::Event;
 use gl::types::GLuint;
-use gl::types::GLsizei;
 use gl::types::GLint;
-use gl::types::GLfloat;
 use std::ffi::CString;
-use std::mem::size_of;
 use std::f32::consts::PI;
 use std::cmp::{min, max};
-use libc::types::common::c95::c_void;
 
 mod gl {
     include!(concat!(env!("OUT_DIR"), "/bindings.rs"));
@@ -36,7 +32,6 @@ impl<'a> Drop for Program<'a> {
         }
     }
 }
-
 impl<'a> Program<'a> {
     fn new(glctx: &'a gl::Gl, shaders: &[Shader]) -> Result<Program<'a>, String> {
         let p = Program {
@@ -77,7 +72,7 @@ impl<'a> Program<'a> {
         }
     }
 }
-// IDFK what this is for. Looks like a destructor.
+
 impl<'a> Drop for Shader<'a> {
     fn drop(&mut self) {
         unsafe {
@@ -85,7 +80,6 @@ impl<'a> Drop for Shader<'a> {
         };
     }
 }
-// XXX this is ugly imo. Make it more like Program
 impl<'a> Shader<'a> {
     fn new (glctx: &'a gl::Gl, typ: GLuint, source: &str) -> Result<Shader<'a>, String> {
         let s = Shader {
@@ -102,26 +96,27 @@ impl<'a> Shader<'a> {
             glctx.GetShaderiv(s.id, gl::COMPILE_STATUS, &mut result);
             result == gl::TRUE as GLint
         };
-        if !successful {
-            let mut log_len = 0;
-            unsafe { glctx.GetShaderiv(s.id, gl::INFO_LOG_LENGTH, &mut log_len) };
-            if log_len <= 0 {
-                Err(String::from("No shader info log?"))
-            } else {
-                let mut buf = Vec::with_capacity(log_len as usize);
-                let buf_ptr = buf.as_mut_ptr() as *mut gl::types::GLchar;
-                unsafe {
-                    glctx.GetShaderInfoLog(s.id, log_len, std::ptr::null_mut(), buf_ptr);
-                    buf.set_len(log_len as usize);
-                };
+        match successful {
+            true => Ok(s),
+            false => Err({
+                let mut log_len = 0;
+                unsafe { glctx.GetShaderiv(s.id, gl::INFO_LOG_LENGTH, &mut log_len) };
+                if log_len <= 0 {
+                    String::from("No shader info log?")
+                } else {
+                    let mut buf = Vec::with_capacity(log_len as usize);
+                    let buf_ptr = buf.as_mut_ptr() as *mut gl::types::GLchar;
+                    unsafe {
+                        glctx.GetShaderInfoLog(s.id, log_len, std::ptr::null_mut(), buf_ptr);
+                        buf.set_len(log_len as usize);
+                    };
 
-                match String::from_utf8(buf) {
-                    Ok(log) => Err(format!("COMPILEFAIL: {}", log)),
-                    Err(vec) => Err(format!("Could not convert compilation log from buffer: {}",vec)),
+                    match String::from_utf8(buf) {
+                        Ok(log) => format!("COMPILEFAIL: {}", log),
+                        Err(vec) => format!("Could not convert compilation log from buffer: {}",vec),
+                    }
                 }
-            }
-        } else {
-            Ok(s)
+            })
         }
     }
 }
@@ -147,11 +142,11 @@ fn main() {
     let indices = [
         0 as u32, 1, 2, 
         0, 2, 3,];
-    let colors = [
-         1.0 as f32,  0.0,  0.0, 1.0,
-         0.0,  1.0,  0.0, 1.0,
-         0.0,  1.0,  1.0, 1.0, 
-         0.0,  0.0,  1.0, 1.0, ];
+    let coords = [
+         -1.0,  -1.0,
+         1.0,   -1.0,
+         1.0,   1.0,
+         -1.0,  1.0 as f32];
     let mut mvm: na::Mat4<f32> = na::new_identity(4);
     let translate = na::Mat4::<f32>::new(
         0.5, 0., 0., 0.0,
@@ -159,8 +154,9 @@ fn main() {
         0., 0., 0.5, 2.,
         0., 0., 0., 1. );
     mvm = mvm * translate;
+    let rot = na::to_homogeneous(& na::Rot3::<f32>::new_with_euler_angles(0., 0., 1.));
+    //mvm = mvm * rot;
     let pm = na::Persp3::<f32>::new(1., PI / 4., 1.0, 100. ).to_mat();
-    //let pm: na::Mat4<f32> = na::new_identity(4);
     
     let pr = unsafe { // Initialize opengl
         glctx.ClearColor(0.0, 0.0, 0.0, 1.0);
@@ -171,36 +167,37 @@ fn main() {
         //glctx.Hint(gl::PERSPECTIVE_CORRECTION_HINT, gl::NICEST);
         let vs = Shader::new(glctx, gl::VERTEX_SHADER,
         r#"
-            attribute vec4 aColor;
+            attribute vec2 aCoord;
             attribute vec3 aPosition;
             uniform uBlock {
                 mat4 uMVMatrix;
                 mat4 uPMatrix;
             };
 
-            varying vec4 vColor;
+            varying vec2 vCoord;
 
             void main(void) {
                 gl_Position = uPMatrix * uMVMatrix * vec4(aPosition, 1.0);
-                vColor = aColor;
+                vCoord = aCoord;
             }
         "#).unwrap();
         let fs = Shader::new(glctx, gl::FRAGMENT_SHADER,
         r#"
-            varying vec4 vColor;
+            varying vec2 vCoord;
             void main(void) {
-                gl_FragColor = vColor;
+                float dist = length(vCoord);
+                gl_FragColor = vec4(vCoord[0] / 2 + 0.5, vCoord[1] / 2 + 0.5, dist, 1);
             }
         "#).unwrap();
         Program::new(glctx, &[fs, vs]).unwrap()
     };
     // Get attr and uniform locations
-    let vloc = unsafe {glctx.GetProgramResourceLocation(pr.id, gl::PROGRAM_INPUT, CString::new("aPosition").unwrap().as_ptr())};
-    let cloc = unsafe { glctx.GetProgramResourceLocation(pr.id, gl::PROGRAM_INPUT, CString::new("aColor").unwrap().as_ptr())};
+    let vloc = unsafe { glctx.GetProgramResourceIndex(pr.id, gl::PROGRAM_INPUT, CString::new("aPosition").unwrap().as_ptr())};
+    let cloc = unsafe { glctx.GetProgramResourceIndex(pr.id, gl::PROGRAM_INPUT, CString::new("aCoord").unwrap().as_ptr())};
     let ubloc = unsafe { glctx.GetProgramResourceIndex(pr.id, gl::UNIFORM_BLOCK, CString::new("uBlock").unwrap().as_ptr())} as u32;
-    println!("Color loc: {}, Vertex loc: {}, ub loc: {}", cloc, vloc, ubloc);
+    println!("Coords loc: {}, Vertex loc: {}, ub loc: {}", cloc, vloc, ubloc);
     if cloc as i32 == -1 {
-        panic!("couldn't find color");
+        panic!("couldn't find coords");
     }
     if vloc as i32 == -1 {
         panic!("couldn't find position");
@@ -256,24 +253,24 @@ fn main() {
     println!("Mapped vertex buffer to {}", vptr as u64);
     let cptr = unsafe {
         // Map and fill the color buffer
-        glctx.NamedBufferStorage(cbuf, colors.len() as i64 * 4, std::ptr::null(), sflags);
-        let ptr = glctx.MapNamedBufferRange(cbuf, 0, colors.len() as i64 * 4, mflags);
+        glctx.NamedBufferStorage(cbuf, coords.len() as i64 * 4, std::ptr::null(), sflags);
+        let ptr = glctx.MapNamedBufferRange(cbuf, 0, coords.len() as i64 * 4, mflags);
         if ptr as u64 == 0 {
-            panic!("Failed to map color buffer {}", glctx.GetError());
+            panic!("Failed to map coord buffer {}", glctx.GetError());
         }
-        std::ptr::copy_nonoverlapping(&colors as *const f32, ptr as *mut f32, colors.len());
-        ptr
+        ptr as *mut f32
     };
+    unsafe {std::ptr::copy_nonoverlapping(&coords as *const f32, cptr, coords.len())};
     let iptr = unsafe {
         // Map and fill the index buffer
         glctx.NamedBufferStorage(ibuf, indices.len() as i64 * 4, std::ptr::null(), sflags);
         let ptr = glctx.MapNamedBufferRange(ibuf, 0, indices.len() as i64 * 4, mflags);
         if ptr as u64 == 0 {
-            panic!("Failed to map color buffer {}", glctx.GetError());
+            panic!("Failed to map index buffer {}", glctx.GetError());
         }
-        std::ptr::copy_nonoverlapping(&indices as *const u32, ptr as *mut u32, indices.len());
-        ptr
+        ptr as *mut u32
     };
+    unsafe {std::ptr::copy_nonoverlapping(&indices as *const u32, iptr, indices.len())};
     println!("Mapped color buffer to {}", cptr as u64);
 
     unsafe {
@@ -281,36 +278,23 @@ fn main() {
     };
 
     let vao = unsafe {
-        // Create a Vertex Array Object 
+        // Create a Vertex Array Object  and die shit together;
         let mut v: u32 = 0;
         glctx.CreateVertexArrays(1, (&mut v));
         glctx.VertexArrayAttribFormat(v, vloc as u32, 3, gl::FLOAT, 0, 0);
-        glctx.VertexArrayAttribFormat(v, cloc as u32, 4, gl::FLOAT, 0, 0);
+        glctx.VertexArrayAttribFormat(v, cloc as u32, 2, gl::FLOAT, 0, 0); // ASO THIS FUCKING THING :<
+        glctx.EnableVertexArrayAttrib(v, vloc as u32);
+        glctx.EnableVertexArrayAttrib(v, cloc as u32);
+        glctx.VertexArrayVertexBuffer(v, vloc as u32, vbuf, 0, 12); // THIS FUCKING THING :<
+        glctx.VertexArrayVertexBuffer(v, cloc as u32, cbuf, 0, 8);
+        glctx.VertexArrayElementBuffer(v, ibuf);
         v
-    };
-    unsafe {
-        // Tie the shit together
-        glctx.EnableVertexArrayAttrib(vao, vloc as u32);
-        glctx.EnableVertexArrayAttrib(vao, cloc as u32);
-        glctx.VertexArrayVertexBuffer(vao, vloc as u32, vbuf, 0, 12);
-        glctx.VertexArrayVertexBuffer(vao, cloc as u32, cbuf, 0, 16);
-        glctx.VertexArrayElementBuffer(vao, ibuf);
     };
     if vao == 0 {
         panic!("Failed to CreateVertexArrays");
     }
     println!("Created VAO: {}", vao);
-    // Dump the viewport cause whynot
-    let vp = unsafe {
-        let mut bs: [GLint;4] = [0, 0, 0, 0];
-        glctx.GetIntegerv(gl::VIEWPORT, bs.as_mut_ptr());
-        bs
-    };
-    let vp_x = vp[0];
-    let vp_y = vp[1];
-    let vp_w = vp[2];
-    let vp_h = vp[3];
-    println!("Viewport at ({}, {}), sized {}x{}", vp_x, vp_y, vp_w, vp_h);
+
     let mut vidx = 0;
     while running {
         for event in event_pump.poll_iter() {
