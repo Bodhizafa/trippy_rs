@@ -1,5 +1,5 @@
 [root]
-name = "three"
+name = "trippy"
 version = "0.1.0"
 dependencies = [
  "gl_common 0.1.0 (registry+https://github.com/rust-lang/crates.io-index)",

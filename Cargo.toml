@@ -1,5 +1,5 @@
 [package]
-name = "three"
+name = "trippy"
 version = "0.1.0"
 authors = ["Magus Zeal <meernik@live.com>"]
 build = "build.rs"

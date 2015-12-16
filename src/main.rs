@@ -1,4 +1,12 @@
-// Bits in here inspired by https://github.com/nukep/rust-opengl-util/blob/master/shader.rs
+/*
+ * ----------------------------------------------------------------------------
+ * "THE BEER-WARE LICENSE" (Revision 42):
+ * <meernik@live.com> wrote this file.  As long as you retain this notice you
+ * can do whatever you want with this stuff. If we meet some day, and you think
+ * this stuff is worth it, you can buy me a beer in return. Landon Meernik
+ * ----------------------------------------------------------------------------
+ */
+
 extern crate sdl2;
 extern crate nalgebra as na;
 extern crate libc;
@@ -323,7 +331,7 @@ fn main() {
     };
 
     let vao = unsafe {
-        // Create a Vertex Array Object  and die shit together;
+        // Create a Vertex Array Object and tie shit together;
         let mut v: u32 = 0;
         glctx.CreateVertexArrays(1, (&mut v));
         glctx.VertexArrayAttribFormat(v, vloc as u32, 3, gl::FLOAT, 0, 0);
@@ -340,17 +348,14 @@ fn main() {
     }
     println!("Created VAO: {}", vao);
 
-    let mut vidx = 0;
     let epoch = time::precise_time_s() as f32;
     let mut t = 0 as f32;
-    let mut last_report = epoch;
+    let mut last_report = 0 as f32;
     let mut last_report_frame = 0;
     let mut frame = 0;
     unsafe {glctx.BindBufferBase(gl::UNIFORM_BUFFER, 1, ubbuf)};
     while running {
-        let last_t = t;
         t = time::precise_time_s() as f32 - epoch;
-        let dt = t - last_t;
 
         if t - last_report > 1.0 {
             println!("{} FPS", (frame - last_report_frame) as f32 / (t - last_report));
@@ -363,24 +368,6 @@ fn main() {
             match event {
                 Event::Quit {..} | Event::KeyDown { keycode: Some(Keycode::Q), .. } => 
                     {running = false},
-                Event::KeyDown { keycode: Some(Keycode::Right), ..  } => {
-                    vidx = min(vidx + 1, vertices.len());
-                },
-                Event::KeyDown { keycode: Some(Keycode::Left), ..  } => {
-                    if vidx > 0 {
-                        vidx = max(vidx - 1, 0);
-                    }
-                },
-                Event::KeyDown { keycode: Some(Keycode::Up), ..  } => {
-                    vertices[vidx] = vertices[vidx] + 0.05;
-                    println!("Set vertices[{}] to {:?}", vidx, vertices);
-                    unsafe {std::ptr::copy_nonoverlapping(&vertices as *const f32, vptr, vertices.len())};
-                },
-                Event::KeyDown { keycode: Some(Keycode::Down), ..  } => {
-                    vertices[vidx] = vertices[vidx] - 0.05;
-                    println!("Set vertices[{}] to {:?}", vidx, vertices);
-                    unsafe {std::ptr::copy_nonoverlapping(&vertices as *const f32, vptr, vertices.len())};
-                },
                 Event::KeyDown { keycode: Some(kc), timestamp, .. } => {println!("Got a {} at {}", kc, timestamp)},
                 _ => {println!("Unknown event")},
             }
@@ -394,7 +381,7 @@ fn main() {
             let translate = na::Mat4::<f32>::new(
                 1., 0., 0., 0.0,
                 0., 1., 0., 0.0,
-                0., 0., 1., (t/13.).sin() * 2. + 8.,
+                0., 0., 1., (t/13.).sin() * 2. + 7.,
                 0., 0., 0., 1. );
             mvm = mvm * translate;
             let rot = na::to_homogeneous(& na::Rot3::<f32>::new_with_euler_angles(t/11., t/9., t/7.));
