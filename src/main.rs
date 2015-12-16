@@ -127,7 +127,7 @@ fn main() {
     println!("OK let's do this!");
     let sctx = sdl2::init().unwrap();
     let vctx = sctx.video().unwrap();
-    let wctx = vctx.window("Some Bullshit", 1024, 1024)
+    let wctx = vctx.window("Sufficiently Trippy", 1024, 1024)
         .opengl()
         .build()
         .unwrap();
@@ -136,10 +136,10 @@ fn main() {
     let mut event_pump = sctx.event_pump().unwrap();
     let glctx = &gl::Gl::load_with(|s| vctx.gl_get_proc_address(s));
     let mut vertices = [
-        -1.0, -1.0,  1.0,
-         1.0, -1.0,  1.0,
-         1.0,  1.0,  1.0, 
-        -1.0,  1.0,  1.0 as f32, ]; 
+        -1.5, -1.5,  0.0,
+         1.5, -1.5,  0.0,
+         1.5,  1.5,  0.0, 
+        -1.5,  1.5,  0.0 as f32, ]; 
 
     let indices = [
         0 as u32, 1, 2, 
@@ -153,11 +153,11 @@ fn main() {
     let translate = na::Mat4::<f32>::new(
         0.5, 0., 0., 0.0,
         0., 0.5, 0., 0.0,
-        0., 0., 0.5, 2.,
+        0., 0., 0.5, 5.,
         0., 0., 0., 1. );
     mvm = mvm * translate;
     let rot = na::to_homogeneous(& na::Rot3::<f32>::new_with_euler_angles(0., 0., 1.));
-    //mvm = mvm * rot;
+    mvm = mvm * rot;
     let pm = na::Persp3::<f32>::new(1., PI / 4., 1.0, 100. ).to_mat();
     
     let pr = unsafe { // Initialize opengl
@@ -167,9 +167,11 @@ fn main() {
         glctx.DepthFunc(gl::LEQUAL);
         //glctx.ShadeModel(gl::SMOOTH);
         //glctx.Hint(gl::PERSPECTIVE_CORRECTION_HINT, gl::NICEST);
+
         let vs = Shader::new(glctx, gl::VERTEX_SHADER,
         r#"
             #define TAU (3.1415926535897932384626433832795 * 2)
+            #define N 100.0
 
             attribute vec2 aCoord;
             attribute vec3 aPosition;
@@ -180,20 +182,54 @@ fn main() {
             };
 
             varying vec2 vCoord;
+            varying float vTheta;
 
+            mat3 rotationMatrix(vec3 axis, float angle)
+            {
+                axis = normalize(axis);
+                float s = sin(angle);
+                float c = cos(angle);
+                float oc = 1.0 - c;
+                
+                return mat3(oc * axis.x * axis.x + c,           oc * axis.x * axis.y - axis.z * s,  oc * axis.z * axis.x + axis.y * s, 
+                            oc * axis.x * axis.y + axis.z * s,  oc * axis.y * axis.y + c,           oc * axis.y * axis.z - axis.x * s, 
+                            oc * axis.z * axis.x - axis.y * s,  oc * axis.y * axis.z + axis.x * s,  oc * axis.z * axis.z + c);
+            }
             void main(void) {
-                float theta = fmod(gl_InstanceID / 100.0 * TAU + t / 2, TAU);
-                vec3 instancePosition = vec3(sin(theta * 3), cos(theta * 3), theta * 3);
-                gl_Position = uPMatrix * uMVMatrix * vec4((aPosition) / 10 + instancePosition, 1);
+                float theta = gl_InstanceID / N * TAU + t / 2;
+                float fb1 = sin(t / 40);
+                float fb1i = 1. - fb1;
+                float fb2 = sin(t / 47 + sin(fb1) * 41) / 2 + 0.5;
+                float fb2i = 1. - fb2;
+                vec3 instancePosition = vec3(sin(theta * 30), 
+                                             cos(theta * (29 + fb1)), 
+                                             ((float)gl_InstanceID / N * 2 - 1) * fb2 + fb2i * sin(theta * (31 + fb1)));
+                mat3 instanceRotation = rotationMatrix(vec3(sin(theta / 3 + t / 5), 
+                                                            cos(theta / 5 + t / 7), 
+                                                            sin(theta / 7 + t / 3)), 
+                                                            t * 1.5);
+                gl_Position = uPMatrix * uMVMatrix * vec4((instanceRotation * aPosition) / 10 + instancePosition, 1);
                 vCoord = aCoord;
+                vTheta = theta;
             }
         "#).unwrap();
         let fs = Shader::new(glctx, gl::FRAGMENT_SHADER,
         r#"
+            #define TAU (3.1415926535897932384626433832795 * 2)
+            #define N 100.0
             varying vec2 vCoord;
+            varying float vTheta;
+            float cmeander(float phase) {
+                return (sin(2*phase)*cos(phase)-.3) * 2 ;
+            }
             void main(void) {
                 float dist = length(vCoord);
-                gl_FragColor = vec4(vCoord[0] / 2 + 0.5, vCoord[1] / 2 + 0.5, dist, 1);
+
+                if (abs(vCoord[0]) > 0.8 || abs(vCoord[1]) > 0.8) {
+                    gl_FragColor = vec4(cmeander(vTheta), cmeander(vTheta * TAU / 3), cmeander((2 * vTheta) * (TAU / 3)) , 1);
+                } else {
+                    gl_FragColor = vec4(cmeander(vTheta / 19), cmeander(vTheta / 19 * TAU / 3), cmeander((2 * vTheta / 19) * (TAU / 3)) , 1);
+                }
             }
         "#).unwrap();
         Program::new(glctx, &[fs, vs]).unwrap()
@@ -305,13 +341,17 @@ fn main() {
     println!("Created VAO: {}", vao);
 
     let mut vidx = 0;
-    let mut t = 0 as f32;
     let epoch = time::precise_time_s() as f32;
+    let mut t = 0 as f32;
     let mut last_report = epoch;
     let mut last_report_frame = 0;
     let mut frame = 0;
+    unsafe {glctx.BindBufferBase(gl::UNIFORM_BUFFER, 1, ubbuf)};
     while running {
-        t = time::precise_time_s() as f32 + epoch;
+        let last_t = t;
+        t = time::precise_time_s() as f32 - epoch;
+        let dt = t - last_t;
+
         if t - last_report > 1.0 {
             println!("{} FPS", (frame - last_report_frame) as f32 / (t - last_report));
             last_report = t;
@@ -349,10 +389,19 @@ fn main() {
             glctx.Clear(gl::COLOR_BUFFER_BIT|gl::DEPTH_BUFFER_BIT|gl::STENCIL_BUFFER_BIT);
             glctx.UseProgram(pr.id);
             glctx.BindVertexArray(vao);
-            glctx.BindBufferBase(gl::UNIFORM_BUFFER, 1, ubbuf);
+            std::ptr::write(tptr, t / 4.);
+            mvm = na::new_identity(4);
+            let translate = na::Mat4::<f32>::new(
+                1., 0., 0., 0.0,
+                0., 1., 0., 0.0,
+                0., 0., 1., (t/13.).sin() * 2. + 8.,
+                0., 0., 0., 1. );
+            mvm = mvm * translate;
+            let rot = na::to_homogeneous(& na::Rot3::<f32>::new_with_euler_angles(t/11., t/9., t/7.));
+            mvm = mvm * rot;
+            std::ptr::write(mvmptr, mvm);
             glctx.MemoryBarrier(gl::CLIENT_MAPPED_BUFFER_BARRIER_BIT);
             glctx.DrawElementsInstanced(gl::TRIANGLES, indices.len() as i32, gl::UNSIGNED_INT, std::ptr::null(), 100);
-            std::ptr::write(tptr, t);
             glctx.Finish();
         }
         wctx.gl_swap_window();
